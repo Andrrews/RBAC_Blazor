@@ -1,0 +1,25 @@
+﻿@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthProvider
+
+<h3>Test Authentication State</h3>
+
+<p>IsAuthenticated: @isAuthenticated</p>
+<p>Username: @username</p>
+<p>Roles: @string.Join(", ", roles)</p>
+
+@code {
+    private bool isAuthenticated;
+    private string username;
+    private List<string> roles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+        username = user.Identity?.Name ?? "Anonymous";
+        roles = user.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+    }
+}

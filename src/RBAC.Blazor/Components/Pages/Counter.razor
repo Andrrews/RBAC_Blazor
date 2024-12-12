@@ -1,0 +1,59 @@
+﻿@page "/counter"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthProvider
+@rendermode InteractiveServer
+@attribute [Authorize]
+<PageTitle>Counter</PageTitle>
+<h3>Test Authentication State</h3>
+
+<p>IsAuthenticated: @isAuthenticated</p>
+<p>Username: @username</p>
+<p>Roles: @string.Join(", ", roles)</p>
+
+<h1>Counter</h1>
+
+<p role="status">Current count: @currentCount</p>
+@if (canEdit)
+{
+<button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
+}
+@code {
+    private int currentCount = 0;
+    private bool canEdit = false;
+    private bool isAuthenticated;
+    private string username;
+    private List<string> roles = new();
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+
+
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        Console.WriteLine($"IsAuthenticated: {user.Identity?.IsAuthenticated}");
+        Console.WriteLine($"Username: {user.Identity?.Name}");
+        foreach (var claim in user.Claims)
+        {
+            Console.WriteLine($"Claim Type: {claim.Type}, Claim Value: {claim.Value}");
+        }
+        canEdit = user.IsInRole("Admin") || user.HasClaim("permission", "EditCounter");
+
+       
+
+        isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+        username = user.Identity?.Name ?? "Anonymous";
+        roles = user.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+    }
+
+    private void IncrementCount()
+    {
+        currentCount++;
+    }
+
+     
+}

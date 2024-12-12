@@ -1,0 +1,24 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthProvider
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <p>NOT AUTHORIZED</p>
+                @code {
+                    protected override void OnInitialized()
+                    {
+                        Console.WriteLine("NotAuthorized: przekierowanie na stronę logowania.");
+                    }
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+     @*     <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" /> *@
+        <FocusOnNavigate RouteData="routeData" Selector="h1"/>
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <p>Nie znaleziono strony.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
