@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RBAC.SQLLite;
 
@@ -11,10 +12,10 @@ namespace RBAC.Blazor.Services
     {
         private readonly HttpClient _httpClient;
         private readonly IDbContextFactory<DatabaseContext> _dbContextFactory;
-        public CustomAuthenticationStateProvider(IDbContextFactory<DatabaseContext> dbContextFactory, HttpClient httpClient)
+        public CustomAuthenticationStateProvider(IDbContextFactory<DatabaseContext> dbContextFactory)
         {
             _dbContextFactory = dbContextFactory;
-            _httpClient = httpClient;
+
         }
 
         public override async Task<AuthenticationState> GetAuthenticationStateAsync()
@@ -22,15 +23,21 @@ namespace RBAC.Blazor.Services
             var ntLogin = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
 
             using var context = await _dbContextFactory.CreateDbContextAsync();
-            var user = await context.Users.Include(u => u.Roles)
+            var user = await context.Users
+                .Include(u => u.Roles)
+                .ThenInclude(r => r.Permissions) // Załaduj uprawnienia dla każdej roli
                 .FirstOrDefaultAsync(u => u.NTLogin == ntLogin.ToLower());
+
 
             if (user == null)
             {
-                // Użytkownik nie znaleziony – anonimowy
+                // Brak użytkownika – zwracamy stan anonimowy
                 var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
-                return await Task.FromResult(new AuthenticationState(anonymous));
+                return new AuthenticationState(anonymous);
             }
+
+
+
 
             // Użytkownik znaleziony – autoryzowany
             var claims = new List<Claim>
@@ -40,36 +47,37 @@ namespace RBAC.Blazor.Services
             };
 
             // Dodaj role jako claims
-            claims.AddRange(user.Roles.Select(role =>
-                new Claim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", role.RoleName)));
+            foreach (var role in user.Roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role.RoleName));
 
+                // Dodanie permissions na podstawie ról
+                foreach (var permission in role.Permissions)
+                {
+                    claims.Add(new Claim("permission", permission.Name));
+                }
+            }
+#if DEBUG
+            foreach (var role in user.Roles)
+            {
+                Console.WriteLine($"RoleName: '{role.RoleName}' (Length: {role.RoleName.Length})");
+            }
+
+            foreach (var claim in claims)
+            {
+                Console.WriteLine($"Claim Type: {claim.Type}, Value: '{claim.Value}'");
+            }
+#endif
 
             var identity = new ClaimsIdentity(claims, "WindowsAuth");
             var authenticatedUser = new ClaimsPrincipal(identity);
-            var authProperties = new AuthenticationProperties
-            {
-                IsPersistent = true
-            };
 
-            var response = await _httpClient.PostAsJsonAsync("/login", new { username = user.Username });
-
-            if (!response.IsSuccessStatusCode)
-            {
-                Console.WriteLine("Logowanie na backendzie nie powiodło się.");
-            }
-
-
-            // Backend loguje użytkownika, generując cookies
 
             Console.WriteLine($"IsAuthenticated: {authenticatedUser.Identity?.IsAuthenticated}, Name: {authenticatedUser.Identity?.Name}, Roles: {string.Join(", ", authenticatedUser.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value))}");
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(authenticatedUser)));
             return new AuthenticationState(authenticatedUser);
-            //return await Task.FromResult(new AuthenticationState(authenticatedUser));
+
         }
-        private async Task LogInUserOnBackend(ClaimsPrincipal user)
-        {
-           
-        }
+
     }
 
 
