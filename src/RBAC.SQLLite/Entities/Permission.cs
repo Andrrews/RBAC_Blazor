@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace RBAC.SQLLite.Entities
 {
-    public class Permission
+    public class Permission 
     {
         public Guid Id { get; set; } = Guid.NewGuid(); 
         public string Name { get; set; }

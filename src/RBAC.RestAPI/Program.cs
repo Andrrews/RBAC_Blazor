@@ -24,12 +24,7 @@ namespace RBAC.RestAPI
             var app = builder.Build();
 
 
-            using (var scope = app.Services.CreateScope())
-            {
-                var context = scope.ServiceProvider.GetRequiredService<DatabaseContext>();
-                DatabaseSeeder.Seed(context);
-            }
-
+           
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {

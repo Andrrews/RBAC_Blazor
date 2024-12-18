@@ -1,107 +1,107 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using RBAC.SQLLite.Entities;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.Identity;
 
 namespace RBAC.SQLLite.Seeds
 {
     public static class DatabaseSeeder
     {
-
-        public static void Seed(DatabaseContext context)
+        public static async Task SeedAsync(DatabaseContext context, UserManager<User> userManager, RoleManager<Role> roleManager)
         {
-            context.Database.Migrate(); // Automatyczne stosowanie migracji
+            // Automatyczne stosowanie migracji
+            await context.Database.MigrateAsync();
 
-            // Dodajemy uprawnienia zawsze
-            SeedPermissions(context);
+            // Dodanie ról i przypisanie uprawnień (claimów)
+            await SeedRolesWithClaimsAsync(roleManager);
 
-            // Te metody są tylko do celów testowych
-            SeedRolesForTesting(context);
-            SeedUsersForTesting(context);
+            // Dodanie użytkowników i przypisanie ról
+            await SeedUsersAsync(userManager, roleManager);
         }
 
-        private static void SeedPermissions(DatabaseContext context)
+        private static async Task SeedRolesWithClaimsAsync(RoleManager<Role> roleManager)
         {
-            // Lista uprawnień zdefiniowanych przez programistów
-            var permissions = new[]
+            // Role i claimy (permissions)
+            var rolesWithClaims = new Dictionary<string, List<string>>
             {
-                new Permission { Name = "ViewWeather", Description = "Allows viewing Weather page" },
-                new Permission { Name = "ViewCounter", Description = "Allows viewing Counter page" },
-                new Permission { Name = "EditCounter", Description = "Allows editing Counter page" }
-
-
+                { "Admin", new List<string> { "ViewWeather", "ViewCounter", "EditCounter" } },
+                { "User", new List<string> { "ViewWeather", "ViewCounter" } }
             };
 
-            // Dodanie brakujących uprawnień do bazy
-            foreach (var permission in permissions)
+            foreach (var roleEntry in rolesWithClaims)
             {
-                if (!context.Permissions.Any(p => p.Name == permission.Name))
+                var roleName = roleEntry.Key;
+                var permissions = roleEntry.Value;
+
+                // Dodaj rolę, jeśli nie istnieje
+                if (!await roleManager.RoleExistsAsync(roleName))
                 {
-                    context.Permissions.Add(permission);
+                    var role = new Role
+                    {
+                        Name = roleName,
+                        RoleDescription = $"{roleName} role"
+                    };
+
+                    await roleManager.CreateAsync(role);
+                }
+
+                // Pobierz rolę
+                var existingRole = await roleManager.FindByNameAsync(roleName);
+
+                // Dodaj claimy do roli
+                foreach (var permission in permissions)
+                {
+                    var existingClaims = await roleManager.GetClaimsAsync(existingRole);
+                    if (!existingClaims.Any(c => c.Type == "permission" && c.Value == permission))
+                    {
+                        await roleManager.AddClaimAsync(existingRole, new System.Security.Claims.Claim("permission", permission));
+                    }
                 }
             }
-
-            context.SaveChanges();
         }
 
-        private static void SeedRolesForTesting(DatabaseContext context)
+        private static async Task SeedUsersAsync(UserManager<User> userManager, RoleManager<Role> roleManager)
         {
-            if (!context.Roles.Any())
+            // Lista użytkowników do stworzenia
+            var users = new List<(string UserName, string Email, string FullName, string NTLogin, string Role)>
             {
-                var adminRole = new Role
-                {
-                    RoleName = "Admin",
-                    RoleDescription = "Administrator role",
-                    Permissions = context.Permissions.ToList() // Przypisz wszystkie dostępne uprawnienia
-                };
+                ("admin", "admin@example.com", "Administrator", @"domain\user", "ADMIN"),
+                ("user", "user@example.com", "Regular User", @"domain\user", "USER")
+            };
 
-                var userRole = new Role
-                {
-                    RoleName = "User",
-                    RoleDescription = "Regular user role",
-                    Permissions = context.Permissions
-                        .Where(p => p.Name.StartsWith("View")) // Tylko uprawnienia do odczytu
-                        .ToList()
-                };
-
-                context.Roles.AddRange(adminRole, userRole);
-                context.SaveChanges();
-            }
-        }
-
-        private static void SeedUsersForTesting(DatabaseContext context)
-        {
-            if (!context.Users.Any(u => u.Username == "admin"))
+            foreach (var userEntry in users)
             {
-                var adminRole = context.Roles.FirstOrDefault(r => r.RoleName == "Admin");
-                var userRole = context.Roles.FirstOrDefault(r => r.RoleName == "User");
+                var (userName, email, fullName, ntLogin, role) = userEntry;
 
-                if (adminRole == null || userRole == null) return;
-
-                // Użytkownik Admin
-                var adminUser = new User
+                if (await userManager.FindByNameAsync(userName) == null)
                 {
-                    Username = "admin",
-                    Email = "admin@example.com",
-                    PasswordHash = "hashed_password",
-                    NTLogin = @""
-                };
-                adminUser.Roles.Add(adminRole);
+                    var user = new User
+                    {
+                        UserName = userName,
+                        Email = email,
+                        FullName = fullName,
+                        NTLogin = ntLogin
+                    };
 
-                // Użytkownik User
-                var regularUser = new User
-                {
-                    Username = "user",
-                    Email = "user@example.com",
-                    PasswordHash = "hashed_password"
-                };
-                regularUser.Roles.Add(userRole);
+                    // Utwórz użytkownika z domyślnym hasłem
+                    var res = await userManager.CreateAsync(user, $"{userName}ABC123!");
+                    if (res.Succeeded)
+                    {
+                        var roleExists = await roleManager.RoleExistsAsync(role);
+                        if (!roleExists)
+                        {
+                            throw new Exception($"Role '{role}' does not exist.");
+                        }
 
-                context.Users.AddRange(adminUser, regularUser);
-                context.SaveChanges();
+                        var userExists = await userManager.FindByNameAsync(user.UserName);
+                        if (userExists == null)
+                        {
+                            throw new Exception($"User '{user.UserName}' does not exist.");
+                        }
+
+                        await userManager.AddToRoleAsync(user, role);
+                    }
+                   
+                }
             }
         }
     }

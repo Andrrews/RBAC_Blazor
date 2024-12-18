@@ -1,84 +1,69 @@
 ﻿using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using RBAC.SQLLite;
+using RBAC.SQLLite.Entities;
 
 namespace RBAC.Blazor.Services
 {
     public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     {
-        private readonly HttpClient _httpClient;
-        private readonly IDbContextFactory<DatabaseContext> _dbContextFactory;
-        public CustomAuthenticationStateProvider(IDbContextFactory<DatabaseContext> dbContextFactory)
-        {
-            _dbContextFactory = dbContextFactory;
+        private readonly UserManager<User> _userManager;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
+        public CustomAuthenticationStateProvider(UserManager<User> userManager, IHttpContextAccessor httpContextAccessor)
+        {
+            _userManager = userManager;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public override async Task<AuthenticationState> GetAuthenticationStateAsync()
         {
+            var httpContext = _httpContextAccessor.HttpContext;
+
+            // Pobranie bieżącego użytkownika Windows (domenowego)
             var ntLogin = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
 
-            using var context = await _dbContextFactory.CreateDbContextAsync();
-            var user = await context.Users
-                .Include(u => u.Roles)
-                .ThenInclude(r => r.Permissions) // Załaduj uprawnienia dla każdej roli
-                .FirstOrDefaultAsync(u => u.NTLogin == ntLogin.ToLower());
+            if (string.IsNullOrEmpty(ntLogin))
+            {
+                return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+            }
 
+            // Znajdź użytkownika w Identity bazując na NTLogin
+            var user = await _userManager.Users.FirstOrDefaultAsync(u => u.NTLogin.ToLower() == ntLogin.ToLower());
 
             if (user == null)
             {
-                // Brak użytkownika – zwracamy stan anonimowy
-                var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
-                return new AuthenticationState(anonymous);
+                // Brak użytkownika – zwracamy anonimowego
+                return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
             }
 
-
-
-
-            // Użytkownik znaleziony – autoryzowany
+            // Tworzenie claimów
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.Name, user.Username),
+                new Claim(ClaimTypes.Name, user.FullName ?? user.UserName),
                 new Claim("NTLogin", user.NTLogin)
             };
 
-            // Dodaj role jako claims
-            foreach (var role in user.Roles)
+            // Pobieranie ról użytkownika
+            var roles = await _userManager.GetRolesAsync(user);
+            foreach (var role in roles)
             {
-                claims.Add(new Claim(ClaimTypes.Role, role.RoleName));
+                claims.Add(new Claim(ClaimTypes.Role, role));
 
-                // Dodanie permissions na podstawie ról
-                foreach (var permission in role.Permissions)
+                // Pobranie claimów przypisanych do roli (AspNetRoleClaims)
+                var roleClaims = await _userManager.GetClaimsAsync(user);
+                foreach (var claim in roleClaims)
                 {
-                    claims.Add(new Claim("permission", permission.Name));
+                    claims.Add(claim);
                 }
             }
-#if DEBUG
-            foreach (var role in user.Roles)
-            {
-                Console.WriteLine($"RoleName: '{role.RoleName}' (Length: {role.RoleName.Length})");
-            }
 
-            foreach (var claim in claims)
-            {
-                Console.WriteLine($"Claim Type: {claim.Type}, Value: '{claim.Value}'");
-            }
-#endif
-
+            // Tworzenie ClaimsPrincipal
             var identity = new ClaimsIdentity(claims, "WindowsAuth");
-            var authenticatedUser = new ClaimsPrincipal(identity);
+            var principal = new ClaimsPrincipal(identity);
 
-
-            Console.WriteLine($"IsAuthenticated: {authenticatedUser.Identity?.IsAuthenticated}, Name: {authenticatedUser.Identity?.Name}, Roles: {string.Join(", ", authenticatedUser.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value))}");
-            return new AuthenticationState(authenticatedUser);
-
+            return new AuthenticationState(principal);
         }
-
     }
-
-
 }

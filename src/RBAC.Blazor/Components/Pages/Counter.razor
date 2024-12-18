@@ -2,14 +2,17 @@
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using RBAC.SQLLite.Entities
 @inject AuthenticationStateProvider AuthProvider
+@inject RoleManager<Role> RoleManager
 @rendermode InteractiveServer
 @attribute [Authorize]
 
 
 <AuthorizeView>
     <Authorized>
-        JESTEM ZAUTORYZOWANY 
+        JESTEM ZAUTORYZOWANY  @context.User.FindFirst("FullName")?.Value
     </Authorized>
     <NotAuthorized>
         BRAK AUTORYZACJI
@@ -29,12 +32,16 @@
 <h1>Counter</h1>
 
 <p role="status">Current count: @currentCount</p>
-@if (permissions.Contains("EditCounter"))
+@if (permissions.Any(x=>x.Value == "EditCounter"))
 {
     <button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
 }
+else
+{
+    <p> Nie masz uprawnień do klikania w przycisk </p>
+}
 
-@if (permissions.Contains("ViewCounter"))
+@if (permissions.Any(x => x.Value == "ViewCounter"))
 {
     <p>Masz uprawnienie do wyświetlenia licznika.</p>
 }
@@ -46,7 +53,7 @@ else
     private int currentCount = 0;
     private string username = "";
     private List<string> roles = new();
-    private List<string> permissions = new();
+    private List<Claim> permissions = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -58,11 +65,18 @@ else
             .Where(c => c.Type == ClaimTypes.Role)
             .Select(c => c.Value)
             .ToList();
-
-        permissions = user.Claims
-            .Where(c => c.Type == "permission")
-            .Select(c => c.Value)
-            .ToList();
+ 
+        foreach (var roleName in roles)
+        {
+            var role = await RoleManager.FindByNameAsync(roleName);
+            if (role != null)
+            {
+                // Pobierz claimy przypisane do roli
+                var claims = await RoleManager.GetClaimsAsync(role);
+                permissions.AddRange(claims.Where(x=>x.Type == "permission").ToList());
+                
+            }
+        }
 
         // Logowanie dla debugowania
         Console.WriteLine($"Roles: {string.Join(", ", roles)}");
